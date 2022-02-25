@@ -1,0 +1,156 @@
+---
+title: "01 kmeans crime"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#import libraries
+library(factoextra)
+library(ggplot2)
+library(skimr)
+library(fpc)
+library(cluster)
+```
+
+#Violent Crime Rates by US State Description. This data set contains statistics, in arrests per 100,000 residents for assault, murder, and rape in each of the 50 US states in 1973. Also given is the percent of the population living in urban areas.
+```{r}
+data("USArrests")
+View(USArrests) 
+```
+
+
+```{r}
+#explore structure and summary statistics
+str(USArrests)
+skim(USArrests)
+```
+
+
+```{r}
+#Clustering requires scaling data
+df <- scale(USArrests)
+head(df)
+```
+
+```{r}
+# Correlation-based distance method
+res.dist <- get_dist(df, method = "pearson")
+head(round(as.matrix(res.dist), 2))[, 1:6]
+
+# Visualize the dissimilarity matrix
+#similar objects are close to one another. Red color corresponds to small distance and blue color indicates big distance between observation.
+fviz_dist(res.dist, lab_size = 8)
+```
+
+#Determining and Visualizing the Optimal Number of Clusters
+#finding the optimal k using fviz_nclust function
+#method = c("silhouette", "wss", "gap_stat")
+```{r}
+fviz_nbclust(df, kmeans, method="wss") 
+
+#suggest cluster at 4. Place a vertical line at x=4
+fviz_nbclust(df, kmeans, method="wss") + 
+  geom_vline(xintercept = 4, linetype=2)
+```
+```{r}
+#kmeans (using stats package], compute kmeans with k=4 from fviz_nbclust
+#set.seed(100)
+#km.res<- kmeans(df, 4, nstart=25) #k and number of centers chosen
+
+#alternate method using eclust from factoextra
+# Enhanced k-means clustering
+#plot results of final k-means model
+set.seed(100)
+km.res <- eclust(df, "kmeans", nstart = 25)
+```
+# using enhanced method, algorithm suggest 4 clusters
+
+```{r}
+print(km.res) 
+#quality of a k-means partition is found by calculating the percentage of the TSS "explained". the higher, the better, BSS is large and/or WSS is small. Calculate the quality of the partition as 
+#BSS / TSS * 100
+
+km.res$centers #cluster centers
+km.res$size #number of obs in each cluster
+```
+
+```{r}
+#find means of each cluster
+aggregate(USArrests, by=list(cluster=km.res$cluster),mean)
+#i.e. The mean number of murders per 100,000 citizens among the states in cluster 1 is 3.6.
+```
+
+```{r}
+#add cluster assignment to original data
+dd<- cbind(USArrests, cluster=km.res$cluster)
+head(dd) #view final dataset
+```
+
+```{r}
+# Silhouette method
+fviz_nbclust(df,kmeans, method = "silhouette") + labs(subtitle = "Silhouette method")
+#the silhouette method is unstable at 2, prefer 4 clusters
+
+# Silhouette plot, using results from the eclust method
+fviz_silhouette(km.res)
+```
+
+```{r}
+# Gap statistic: Another way to determine the optimal number of clusters. compares the total intra-cluster variation for different values of k with their expected values for a distribution with no clustering.
+set.seed(42)
+fviz_nbclust(df, kmeans,
+             nstart = 25,
+             method = "gap_stat",
+             nboot = 500 # reduce it for lower computation time (but less precise results)
+) +
+  labs(subtitle = "Gap statistic method")
+
+#alternative solution
+# Gap statistic plot
+fviz_gap_stat(res.km$gap_stat)
+```
+#Another option is from the cluster package, clusGap
+
+```{r}
+library(NbClust)
+#https://www.jstatsoft.org/article/view/v061i06
+#computes the NbClust() for kmeans, from NbClust package
+nbclust_out <- NbClust(
+  data = df,
+  distance = "euclidean",
+  min.nc = 2, # minimum number of clusters
+  max.nc = 5, # maximum number of clusters
+  method = "kmeans" # one of: "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid", "kmeans"
+)
+#you can add a specific index inside NbClust code
+
+fviz_nbclust(nbclust_out) #factoextra package
+```
+
+#PAM - an alternative is K-medoids. Instead of the center of a cluster being the mean of the cluster, the center is one of the actual observations in the cluster. 
+```{r}
+#Selecting optimal number of clustering using silhouette
+fviz_nbclust(df, pam, method ="silhouette") +
+  theme_minimal()
+```
+
+
+```{r}
+#Creating clustering with PAM method
+pam.res <- pam(df, 4)
+pam.res$clustering  
+#play with $ to see all components
+pam.res$clusinfo 
+USArrests$cluster = pam.res$cluster
+
+pam.res$medoids
+```
+
+```{r}
+# Visualize
+fviz_cluster(pam.res)
+```

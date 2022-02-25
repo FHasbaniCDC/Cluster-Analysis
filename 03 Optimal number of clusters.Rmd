@@ -1,0 +1,89 @@
+---
+title: "Optimal number of clusters"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# load required packages
+library(factoextra)
+library(NbClust)
+```
+
+#template for determining and visualizing optimal number of clusters
+https://rpkgs.datanovia.com/factoextra/reference/fviz_nbclust.html
+
+#fviz_nbclust(x, FUNcluster = NULL, method = c("silhouette", "wss",
+  "gap_stat"), diss = NULL, k.max = 10, nboot = 100,
+  verbose = interactive(), barfill = "steelblue",
+  barcolor = "steelblue", linecolor = "steelblue",
+  print.summary = TRUE, ...)
+
+#fviz_gap_stat(gap_stat, linecolor = "steelblue", maxSE = list(method =
+  "firstSEmax", SE.factor = 1))
+  
+#once raw data is scaled (df.scaled), measures to find optimal number of clusters
+
+```{r}
+# Elbow method
+fviz_nbclust(df.scaled, kmeans, method = "wss") + 
+  # add line for better visualization
+  labs(subtitle = "Elbow method") # add subtitle
+```
+
+```{r}
+#The Silhouette method measures the quality of a clustering and determines 
+#how well each point lies within its cluster.
+
+# Silhouette method
+fviz_nbclust(df.scaled, kmeans, method = "silhouette") +
+  labs(subtitle = "Silhouette method")
+```
+
+```{r}
+#Gap statistic method, bootstrapping method
+set.seed(42)
+fviz_nbclust(df, kmeans,
+             nstart = ,
+             method = "gap_stat",
+             nboot = 500 # bootstrap samples, reduce it for lower computation time (but less precise results)
+) +
+  labs(subtitle = "Gap statistic method")
+
+#alternative script
+# Perform (enhanced) k-means clustering
+km <- eclust(df, "kmeans", nstart = 25)
+# Gap statistic plot
+fviz_gap_stat(km$gap_stat)
+
+#alternative script
+# Perform k-means clustering using clusGap
+library(cluster)
+gap_stat <- clusGap(df, FUN = kmeans, 
+                    nstart = 25,
+                    K.max = 10, #maximum number of clusters
+                    B = ) #insert number less than 500
+ print(gap_stat, method = "firstmax")
+fviz_gap_stat(gap_stat)
+```
+
+```{r}
+# Print cluster result
+km
+```
+
+```{r}
+#The NbClust() function from the {NbClust} package, which provides 30 indices for choosing the best number of clusters.
+nbclust_out <- NbClust(
+  data = , #insert data name
+  distance = "euclidean",
+  min.nc = , # insert minimum number of clusters
+  max.nc = , # insert maximum number of clusters
+  method = "kmeans" # one of: "ward.D", "ward.D2", "single", "complete", "average", "mcquitty", "median", "centroid", "kmeans"
+)
+nbclust_out #outputs results from various indicies
+fviz_nbclust(nbclust_out)
+```
