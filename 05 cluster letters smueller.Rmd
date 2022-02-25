@@ -1,0 +1,290 @@
+---
+title: "Clustering Methods"
+author: "Shane Mueller"
+Reference: "Venables & Ripley MASS Chapter 11"
+---
+
+```{r knitr_init, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This unit covers a handful of clustering approaches, including k-means clustering, a number of hierarchical clustering approaches (divisive and agglomerative), and variations on these methods.
+
+# Hierarchical Clustering
+Tversky made several suggestions to account for the findings, based primarily on the fact that different features are weighted differently. This seems to favor an approach where data can be partitioned based on dissimilarity of one feature, such that if two things differ on an important feature, matches along less important features might not matter.  He suggested a hierarchical clustering approach to characterize data of this sort.
+
+In a hierarchical approach, you create a binary tree, so that the first split divides the population into two groups that are most different, and each sub-population is split, recursively, until everything is on its own leaf.  There are a number of ways to do this, but the final solution provides a complete set of dissimilarity measures that are ''ultra-metric'' when visualized in a tree.  The dissimilarity between any two elements is interpreted as the measure of the largest group that contains both items. Note that we throw away the complete dissimilarity matrix and replace it with one inferred by the cluster.  Sometimes this works and we have a useful representation.
+
+## Sample Data: Alphabet Similarity
+The example below uses the response time data to different letter pairs as an example.
+
+```{r,fig.width=7,fig.height=7.5}
+distmat0 <- as.matrix(read.csv("plaindist.csv")[,-1])
+colnames(distmat0) <- LETTERS
+rownames(distmat0) <- LETTERS
+distmat0[1:5,1:5]
+##Transform it into distance matrix 
+distmat <- as.dist(distmat0)
+
+image(1:26,1:26,distmat0,xaxt="n",yaxt="n",main="Similarity of letters",xlab="",ylab="")
+axis(1,1:26,LETTERS,cex.axis=.75)
+axis(2,1:26, LETTERS,cex.axis=.75)
+```
+
+Along with the subjective similarity rating data, we can often give clustering algorithms feature or dimensional data.  For comparison, we will look at a feature-level analysis of letters produced by Keren & Baggen (1981).  Here, the features include things like roundness, horizontal, vertical features, and the like.
+
+```{r}
+
+features <- read.table("keren.txt")[,-1]
+rownames(features) <- LETTERS
+features
+
+```
+
+Notice that distmat  has been pre-processed and scaled to produce a distance-like measure.  The diagonal is always 0, but what else shows up? It is hard to say for sure. We could apply and MDS like before to understand the space.
+
+```{r}
+library(MASS)
+m <- isoMDS(distmat,k=2)
+plot(m$points,cex=3,pch=16)
+text(m$points,LETTERS,col="white")
+```
+The MDS puts similarly-shaped letters in similar positions.  However, a clustering approach may show other things. First, we will consider hierarchical clustering methods.  Hierarchical clustering attempts to find a hierarchy that groups or divides items repeatedly until the whole set is characterized by a binary tree.  In order to do this, we need to decide on whether we want to start from the bottom (called agglomerative), merging pairs together, then adding groups together, until the entire data set is merged, or start at the top (called divisive), repeatedly dividing sets in ways that maximize within-set similarity and minimize between-set similarity.   Once we decide on the direction, we also needs to determine a method for defining what 'close' means when we want to divide or merge items and clusters.  For example, do we count the similarity of two groups  to be the largest of the inter-cluster similarity, the smallest, the average, or something else.  We will start by examining the clustering methods in the $cluster$ library.
+
+
+## The `cluster` library
+
+Several clustering methods are available within the `cluster` library.
+  A hierarchical clustering might look like this. We will start with agnes, an agglomerative clustering approach. This is bottom-up, and finds the closest pairs at each stage to link together, linking items and existing clusters together until the entire set is linked.
+
+```{r,echo=FALSE, fig.width=5,fig.height=5}
+library(cluster)
+
+a2 <- agnes(distmat)
+plot(a2)
+
+##select just the dendrogram:
+m <- agnes(distmat)
+plot(m,which=2)
+```
+
+The standard display plot is sometimes not very polished. The ggdendro package provides a ggplot-based visualization:
+```{r}
+library(ggdendro)
+
+ggdendrogram(m)
+ggdendrogram(m,rotate=T)
+```
+
+
+Notice that at the very bottom, we typically have visually-similar letters grouped.  As you move higher, there are larger clusters that are more broadly similar. But dissimilarity is less clear. With appropriate distance measures, a hierarchical clustering is an ''ultrametric''.  Here, we interpret the dissimilarity between two things is the height of the cluster containing them both.  Here, A, is dissimilar to everything; C, G,  O, and Q are in a cluster, with Q being somewhat least well fit, and so on.  Ultrametric spaces are convenient when the similarity between two things only matters locally, and if you get far away everything is essentially equally dissimilar.
+
+
+The cluster library provides a set of functions for creating hierarchical and other clusters. They allows you to _either_ specify the raw data _or_ a distance metric.  If you specify the raw data, it will compute a distance metric based on either euclidean or manhattan distance.  Warning...if you give it a distance measure but don't transform it into one using as.dist, it can still give you something that looks OK, but is wrong. Compare the following, using the 'agnes' function.  Remember that distmat0 matrix, which was the original raw data; distmat is the one that had been turned into a distance object.
+
+```{r,fig.width=5,fig.height=6}
+library(gridExtra)
+library(ggplot2)
+p1 <- ggdendrogram(agnes(distmat))
+p2 <- ggdendrogram(agnes(distmat0))
+grid.arrange(p1,p2)
+
+```
+They both look sort of reasonable, but the first one is better.  The second one is treating the distance matrix as if it were a set of features--it then creates a distance matrix based on these features, which ends up being fairly similar but not identical.  In some cases, it could be very different, so you need to be careful about what goes into these functions.  
+
+If you specify a set of features, you also can specify the type of metric used to compute a distance.  The two available are euclidean and manhattan.  Euclidean distance is just distance in space as the crow flies.  Manhattan distance takes the deviation along each dimension and sums them--it is distance as you would need to travel along a city block scheme. The second is often better if you have independent features that don't trade off.
+
+## Agglomerative approaches
+
+The agglomerative approach implemented within the agnes function starts by finding pairs that go together, and then build up from the bottom. Let's look more carefully at what happens:
+
+```{r}
+ag <- agnes(distmat)
+p1 <- ggdendrogram(ag)
+p1
+```
+
+Although agnes can handle a distance matrix, you can also give it a set of feature-values, and it will compute that matrix directly. Remember that these features are developed with a different method than the subjective ratings data we have looked at so far.
+```{r}
+ag2 <-agnes(features)
+p2 <- ggdendrogram(ag2)
+p2
+```
+
+Here, we can see that both clustering solutions capture similar pairs fairly well. Both group E and F together, and put M and W close together.  If we look at higher-level clusters, both group round letters together in one group. However, the higher-level structures seem a bit inconsistent. If we wanted to capture the large-scale structure first, we could use a divisive approach; trying to find the best splits from the large-scale data and iteratively dividing.
+
+
+
+## Divisive Approaches 
+A second method is to take the entire data set and first find the best way to divide it into two, and then divide those into two, and so on.  This is more appropriate if you are more interested in a large-scale class structure.  For example, if you had similarity ratings of hundreds of birds, you'd expect birds of the same species to be together at the bottom, but this maybe not as interesting as large-scale divisions (maybe between land and sea birds). In that case, you might consider a divisive approach, which is provided by the diana function.
+
+```{r}
+d <- diana(distmat)
+p1 <- ggdendrogram(d)
+d2 <- diana(features)
+p2 <- ggdendrogram(d2)
+grid.arrange(p1,p2,ncol=2)
+```
+
+
+Notice that here, it perhaps does a better job of separating the curved letters from the boxy letters and the letters with diagonals.
+
+
+
+## Linkage methods of cluster similarity
+
+For agglomerative clustering, the main way to control the outcome is to control how you compute the dissimilarity of a group, or of a group to a new item. These are influnced by the method argument, which can take on values:
+* single (essentially the distance from the new point to any element of the group)
+* average (average distance between point and all points in group)
+* complete (the largest distance from new point to anything in the group)
+* ward (undocumented)
+* weighted (some sort of weighted average)
+* flexible and gaverage (more detailed control)
+
+
+If we compare some of these alternatives (so far we have used 'average', which is the default). In general, these are applicable to both agglomerative and divisive approaches
+
+```{r}
+a2 <- agnes(distmat,method="single")
+a3 <- agnes(distmat,method="complete")
+a4 <- agnes(distmat,method="ward")
+a5 <- agnes(distmat,method="weighted")
+
+p2 <- ggdendrogram(a2) +  labs(title="Single")
+
+p3 <- ggdendrogram(a3) +  labs(title="Complete")
+p4 <- ggdendrogram(a4) +  labs(title="Ward's Method")
+p5 <- ggdendrogram(a5) +  labs(title="Weighted")
+grid.arrange(p2,p3,p4,p5,ncol=2)
+```
+
+These different methods seem to have large differences in the outcome.  The single-linkage model is pretty terrible. This is typical---it sort of links one next-closest item at a time into a chain.  Single-linkage models are efficient to calculate because they pick the minimum pairing, but efficiency is not usually a huge concern, and so it is typically not a good idea to use single-linkage.  Complete linkage takes the opposite approach, and all of the remaining solutions are pretty reasonable.
+
+
+### Exercise: for the feature-rating data, complete the different clustering methods and linkage methods, and compare the results
+```{r}
+##Example:
+a.rs <- agnes(features,method="single")
+d.rs <- diana(features)
+
+p1 <- ggdendrogram(a.rs,which=2)
+p2 <- ggdendrogram(d.rs,which=2)
+grid.arrange(p1,p2,ncol=2)
+```
+There are some additional clustering methods available within the cluster library, which we will return to as they are more related to k-means clustering.
+
+
+# Finite Clustering Approaches
+
+A second general approach to clustering is to assume a fixed number of clusters exist, and then find the best configuration that matches these clusters.  The simplest approach for this is k-means clustering, where $k$ is the fixed number of clusters.  Of course, if we start with a specific value for $k$, we can obtain a solution and get a measure of the goodness-of-fit.  Then, we can compare this solution to solutions provided by other values of $k$, and try to choose a $k$ that seems most reasonable.
+
+There are a number of related approaches to this, including finite mixture modeling which we will deal with in a future unit.
+
+
+## K-means clustering
+K-means clustering uses distance to define group membership.  You specify the number of clusters, and it adaptively sorts observations into clusters, and then adjusts the centers of the clusters to fit the observations. This is easy to implement by hand, but the kmeans function that is part of the R default stats package provides a reasonable solution. One big difference between hierarchical clustering and  kmeans clustering is that kmeans requires the 'raw' data, not the distance metric, and gives us clusters as defined by the mean values on each feature.  If we had just similarity data, we could use MDS to infer features, and then use that inferred space to produce a k-means solution.
+
+Let's start with a small value for $k$: say 3.
+```{r,fig.width=8,fig.height=5}
+
+
+k3 <- kmeans(features,centers=3)
+sort(k3$cluster)
+matplot(t(k3$centers),type="b",xaxt="n")
+axis(1,1:14,paste("F",2:15,sep=""))
+
+
+k3
+```
+
+Here, each cluster is defined by the means on 14 dimensions. The solution is as follows:  
+
+```
+I J L O Q T Z B C D E F G P R S A H K M N U V W X Y 
+1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 3 3 3 3 3 3 3 3 3 3 
+```
+
+K-means provides a goodness of fit statistic, indicating the sum of squares by cluster.   By dividing between-group sum-of-squares by within-group, you can figure out the proportion of variance accounted for within versus between clusters. What happens to this when we look at different k-values?
+
+### Exercise: do a k-means clustering on the feature-based letter data, exploring the solutions and the sum-of-squares statistics.
+
+```{r}
+k2<-kmeans(features,centers=2)
+k3 <- kmeans(features,centers=3)
+k4 <- kmeans(features,centers=4)
+k5 <-kmeans(features,centers=5)
+k10<-kmeans(features,centers=10)
+
+k2$betweenss/k2$totss
+k3$betweenss/k3$totss
+k4$betweenss/k4$totss
+k5$betweenss/k5$totss
+k10$betweenss/k10$totss
+```
+Here, the between/within rises from 26% to 73% as the number of groups goes up to 10. Here, we  notice a diminishing return for adding more clusters after 4 or 5.  Maybe we want to look at the k5 solution:
+```{r}
+sort(k5$cluster)
+```
+
+This seems a bit better than the 3-cluster solution, as it tends to group together smaller sets of roughly-similar letters.
+
+
+## Fuzzy clustering (FANNY)
+
+Fanny clustering (in the cluster library) is sort of a fuzzy k-means, because each observation may have likelihood of belonging to several clusters.  This is not exactly partitioning, but can be helpful in determining how well different observations fit into different clusters.
+
+We will use the feature data for this, examining just three clusters. Let's use manhattan metric, because these are binary features. Also, initial solutions were poor, and  fanny recommended changing the default memb.exp value, which appears to be a sort of soft-max coefficient value.
+```{r,fig.width=9,fig.height=7}
+f <- fanny(features,k=3,metric="manhattan",memb.exp=1.2)
+f
+matplot(f$membership,type="b", xaxt="n")
+
+axis(1,1:26,LETTERS)
+plot(f)
+
+```
+
+In this analysis, we have assumed three clusters.  The matplot we performed returns a membership value, which indicates a fuzzy membership level in each of the clusters.  Some values are unambiguous (M and N), but others are less so, (like K). If we then place the item in the best group, we can get a measure of how well it fits that group using a silhouette plot.  The horizontal width of the silhouette plot shows how well each item is described by the cluster it ended up in. Sometimes, a few elements will fall 'below the waterline', meaning that they are not well described by the cluster they are placed in. For example, K and S  are poor.  According to the fuzzy membership number, although K is most likely to be in group 1, it is about equally likely to be in  either group 3 or 2.
+
+Fanny also returns some fuzzyness coefficients that indicate how well the model works (the dunn coefficient). This might be used to compare to other choices of k.
+
+
+## Partition around Mediods (PAM)
+
+The PAM clustering approach  (also in the cluster library) assumes a fixed number of 'mediods' that you specify. These mediods are like centroids, but are exemplars that are in the data, rather than a 'prototype' or average mixture of all of the elements in that group.  Like agnes and diana, pam can use either a distance matrix or raw data (in which case you need to specify the metric.). It also provides a silhouette plot.  Let's look at the original letter data, with k=2,3, and 4:
+
+
+```{r,fig.width=8,fig.height=7}
+p2 <- pam(distmat,k=2)
+p3 <- pam(distmat,k=3)
+p4 <- pam(distmat,k=4)
+par(mfrow=c(1,3))
+plot(p2)
+plot(p3)
+plot(p4)
+
+p4
+```
+
+These again show a goodness of fit between each point in a cluster and all other points in that cluster.  Note that they rank order the observations in each based on the silhouette width, which is sort of a typicality of the observation.  Usually, the mediod has the highest silhouette value, but not always. For example, for k=4, the mediods were E, C, I, and W.  The silhouette plot is not showing the exact values used to make the clustering, (distance to mediod), but rather an overall average similarity. Negative values indicate poor fit, and may mean more clusters are needed.
+
+PAM is interesting beceause it uses just the similarity values. It does not need to recompute any similarities. It also gives a center item that can be used to label the group--rather than considering an arbitrary point in an arbitrary space. But it requires the similarity or distance metric, whose size is $n*(n-1)/2$. This can get large as the data set gets large, and so may get inefficient.
+
+### `clara`: PAM with a lot of data
+If you have a lot of data, the similarity matrix is the square of the number of elements, and it can get very large, and these methods can grow very inefficient.  the clara function handles larger data sets.  Instead of using a complete dissimilairty matrix, it instead takes a set of features.  
